@@ -1,0 +1,18 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments and local Python installs
+.venv/
+venv/
+env/
+ENV/
+torch/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local editor settings
+.vscode/
