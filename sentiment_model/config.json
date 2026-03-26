@@ -10,7 +10,15 @@
   "dtype": "float32",
   "eos_token_id": null,
   "hidden_dim": 3072,
+  "id2label": {
+    "0": "negative",
+    "1": "positive"
+  },
   "initializer_range": 0.02,
+  "label2id": {
+    "negative": 0,
+    "positive": 1
+  },
   "max_position_embeddings": 512,
   "model_type": "distilbert",
   "n_heads": 12,
