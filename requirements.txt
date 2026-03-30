@@ -6,3 +6,6 @@ transformers>=4.40
 datasets>=2.18
 nltk
 matplotlib
+streamlit
+plotly
+sentencepiece
