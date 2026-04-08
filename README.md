@@ -57,6 +57,46 @@ To run the Sentira AI system locally:
    streamlit run app.py
    ```
 
+## 🤖 LLM Reasoning + Feedback (LoRA)
+This project now includes a generation pipeline that explains *why* an emotion was predicted and gives actionable text-improvement feedback.
+
+### 1. Fine-tune the reasoning model with LoRA
+Default base model: `google/flan-t5-base`
+
+```bash
+python train_lora_reasoning.py \
+   --data emotion_predictions_full.csv \
+   --model google/flan-t5-base \
+   --output_dir reasoning_feedback_lora \
+   --epochs 3 \
+   --batch_size 4
+```
+
+### 2. Evaluate with ROUGE
+```bash
+python evaluate_lora_reasoning.py \
+   --base_model google/flan-t5-base \
+   --adapter_path reasoning_feedback_lora
+```
+
+The script prints `rouge1`, `rouge2`, `rougeL`, and saves validation predictions to:
+`reasoning_feedback_lora/validation_predictions.csv`
+
+### 3. Use Hugging Face token for API fallback (optional)
+The Streamlit app first tries local LoRA adapter generation. If unavailable, it can call Hugging Face inference API.
+
+Set token in environment:
+
+```bash
+set HF_TOKEN=your_huggingface_token
+```
+
+Then run:
+
+```bash
+streamlit run app.py
+```
+
 ## 📂 Repository Structure
 * `app.py`: The Streamlit frontend and inference logic.
 * `Emotion_detection.ipynb`: The core research notebook detailing data preprocessing, model training, and evaluation.
