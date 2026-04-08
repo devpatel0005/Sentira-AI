@@ -10,7 +10,7 @@ venv/
 env/
 ENV/
 torch/
-
+.env
 # Jupyter
 .ipynb_checkpoints/
 
