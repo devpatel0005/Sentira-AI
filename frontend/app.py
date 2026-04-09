@@ -2,153 +2,243 @@ import streamlit as st
 import torch
 import pandas as pd
 import plotly.express as px
+from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import GPT2Tokenizer, GPT2LMHeadModel
+from peft import PeftModel
 
-# --- PAGE CONFIGURATION ---
+# --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="Sentira AI | Dev Dharmesh Patel",
+    page_title="MoodLens AI | Dev Dharmesh Patel",
     page_icon="🧠",
     layout="wide"
 )
 
-# --- CUSTOM CSS FOR STYLING ---
+# --- CUSTOM CSS ---
 st.markdown("""
-    <style>
-    .main {
-        background-color: #f8f9fa;
-    }
-    .stTextArea textarea {
-        border: 2px solid #e0e0e0;
-        border-radius: 10px;
-    }
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-        height: 3.5em;
-        background-color: #007BFF;
-        color: white;
-        font-weight: bold;
-        transition: 0.3s;
-    }
-    .stButton>button:hover {
-        background-color: #0056b3;
-        border: 1px solid #0056b3;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+.main {background-color: #f8f9fa;}
+.stTextArea textarea {border: 2px solid #e0e0e0; border-radius: 10px;}
+.stButton>button {
+    width: 100%; border-radius: 8px; height: 3.5em;
+    background-color: #007BFF; color: white; font-weight: bold;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# --- LOAD MODEL & TOKENIZER ---
+# =========================
+# ✅ LOAD MODELS
+# =========================
 @st.cache_resource
-def load_model():
-    model_path = "emotion_model" 
-    # use_fast=False ensures compatibility with local environments
-    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
-    model = AutoModelForSequenceClassification.from_pretrained(model_path)
-    return tokenizer, model
+def load_models():
+    project_root = Path(__file__).resolve().parents[1]
+    models_dir = project_root / "models"
+
+    # =========================
+    # Emotion classifier
+    # =========================
+    clf_path = models_dir / "emotion_model"
+
+    clf_tokenizer = AutoTokenizer.from_pretrained(
+        str(clf_path),
+        use_fast=False,
+        local_files_only=True
+    )
+
+    clf_model = AutoModelForSequenceClassification.from_pretrained(
+        str(clf_path),
+        local_files_only=True
+    )
+
+    # =========================
+    # Reasoning model (LoRA)
+    # =========================
+    base_model = GPT2LMHeadModel.from_pretrained("gpt2")
+
+    reasoning_model = PeftModel.from_pretrained(
+        base_model,
+        str(models_dir / "fine-tuned-gpt2")
+    )
+
+    reasoning_tokenizer = GPT2Tokenizer.from_pretrained(
+        str(models_dir / "fine-tuned-gpt2")
+    )
+
+    reasoning_tokenizer.pad_token = reasoning_tokenizer.eos_token
+    reasoning_model.config.pad_token_id = reasoning_tokenizer.pad_token_id
+
+    reasoning_model.eval()
+
+    return clf_tokenizer, clf_model, reasoning_tokenizer, reasoning_model
 
 try:
-    tokenizer, model = load_model()
+    clf_tokenizer, clf_model, tokenizer, reasoning_model = load_models()
     classes = ['sadness', 'joy', 'love', 'anger', 'fear', 'surprise']
 except Exception as e:
-    st.error(f"Error loading model: {e}")
+    st.error(f"Model loading error: {e}")
     st.stop()
 
-# --- SIDEBAR (RESUME & CONTACT) ---
+# =========================
+# ✅ GENERATION FUNCTION
+# =========================
+BEHAVIOR_PROMPT = (
+    "You are an emotion reasoning assistant. Identify emotional signals, "
+    "explain reason in 1-2 sentences, and give improvement feedback."
+)
+
+EXAMPLE_TEXTS = [
+    "I failed my exam and feel really bad.",
+    "I got my dream job today and I am so happy!",
+    "I miss my best friend so much and feel empty.",
+    "My parents surprised me with a gift and I am shocked.",
+    "I am nervous about tomorrow's interview.",
+    "I feel deeply loved when my family supports me.",
+]
+
+
+def apply_selected_example():
+    selected_text = st.session_state.selected_example
+    if selected_text != "Choose an example":
+        st.session_state.user_input = selected_text
+
+def generate_response(text, emotion):
+    prompt = (
+        f"### System Behavior:\n{BEHAVIOR_PROMPT}\n\n"
+        f"### Instruction:\nExplain the emotion and give improvement feedback\n\n"
+        f"### Input:\nText: {text} | Emotion: {emotion}\n\n"
+        f"### Response:\n"
+    )
+
+    inputs = tokenizer(prompt, return_tensors="pt")
+
+    with torch.no_grad():
+        outputs = reasoning_model.generate(
+            **inputs,
+            max_new_tokens=80,
+            temperature=0.6,
+            top_p=0.9,
+            do_sample=True,
+            repetition_penalty=1.2,
+            pad_token_id=tokenizer.eos_token_id
+        )
+
+    text_out = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    if "### Response:" in text_out:
+        text_out = text_out.split("### Response:")[-1]
+
+    return text_out.split("###")[0].strip()
+
+# =========================
+# 🎯 SIDEBAR
+# =========================
 with st.sidebar:
-    st.markdown("# 🧠 Sentira AI")
-    st.markdown("### *Emotion Recognition Intelligence System*")
+    st.markdown("# 🧠 MoodLens AI")
+    st.markdown("### Emotion Intelligence System")
     st.markdown("---")
-    st.markdown("### 👤 Developer")
     st.info("**Dev Dharmesh Patel**")
-    st.write("📧 [devdpatel0005@gmail.com](mailto:devdpatel0005@gmail.com)")
-    st.write("🔗 [GitHub Profile](https://github.com/devpatel0005)")
-    
+    st.markdown("[GitHub](https://github.com/devpatel0005)")
+    st.markdown("[Email](mailto:devdpatel0005@gmail.com)")
     st.markdown("---")
-    st.markdown("### 🛠️ Core Technology")
-    st.write("- **Architecture:** RoBERTa-Base")
-    st.write("- **Backend:** PyTorch / Transformers")
-    st.write("- **Domain:** Natural Language Processing")
-    
-    st.markdown("---")
-    st.caption("v1.0.0 | Focused on High-Accuracy Sentiment Analysis")
+    st.markdown("**Tech Stack**")
+    st.markdown("""
+- Python
+- Streamlit
+- PyTorch
+- Hugging Face Transformers
+- PEFT (LoRA)
+- Plotly
+- Pandas
+""")
 
-# --- MAIN UI ---
-st.title("Sentira AI: Deep Emotion Intelligence")
-st.markdown("##### Transform raw text into actionable emotional insights using state-of-the-art Transformers.")
+# =========================
+# 🎨 MAIN UI
+# =========================
+st.title("MoodLens AI: Emotion + Reasoning")
+st.markdown("Analyze emotions with AI-powered reasoning and supportive feedback.")
 
-col1, col2 = st.columns([1, 1], gap="large")
+col1, col2 = st.columns(2)
 
+# =========================
+# 📥 INPUT
+# =========================
 with col1:
-    st.subheader("Analysis Terminal")
-    
-    # Quick Test Dropdown
-    st.write("Pick a test case or type your own:")
-    example_input = st.selectbox("Pre-loaded examples:", [
-        "Select an example...",
-        "I just got my dream job offer and I couldn't be happier!",
-        "Oh great, another flat tire. Just what I needed today.",
-        "I heard a strange noise downstairs and my heart started racing.",
-        "I am absolutely mesmerized by the starry sky tonight.",
-        "I can't believe you actually did that, I'm so shocked!"
-    ])
+    st.subheader("Input Text")
 
-    default_text = "" if example_input == "Select an example..." else example_input
+    if "user_input" not in st.session_state:
+        st.session_state.user_input = ""
+
+    if "selected_example" not in st.session_state:
+        st.session_state.selected_example = "Choose an example"
+
+    st.selectbox(
+        "Select an example emotion text:",
+        ["Choose an example"] + EXAMPLE_TEXTS,
+        key="selected_example",
+        on_change=apply_selected_example
+    )
 
     user_input = st.text_area(
-        "Input Text:",
-        value=default_text,
-        placeholder="Type a sentence here...",
-        height=150
+        "Enter text:",
+        placeholder="Type something...",
+        height=150,
+        key="user_input"
     )
-    
-    predict_button = st.button("Run Intelligence Analysis")
 
+    predict_button = st.button("Analyze Emotion")
+
+# =========================
+# 📊 OUTPUT
+# =========================
 with col2:
-    st.subheader("Emotional Profile")
+    st.subheader("Results")
+
     if predict_button and user_input.strip() != "":
-        # Preprocessing
-        inputs = tokenizer(user_input, return_tensors="pt", truncation=True, padding=True)
-        
-        # Inference
+
+        # ---- Emotion Prediction ----
+        inputs = clf_tokenizer(user_input, return_tensors="pt", truncation=True, padding=True)
+
         with torch.no_grad():
-            outputs = model(**inputs)
-        
-        # Calculations
+            outputs = clf_model(**inputs)
+
         logits = outputs.logits
         probs = torch.nn.functional.softmax(logits, dim=1).flatten()
-        prediction = torch.argmax(logits, dim=1).item()
-        conf_score = probs[prediction].item()
-        
-        # Big Metric Display
-        st.metric(label="Detected Emotion", value=classes[prediction].upper(), delta=f"{conf_score:.2%} Confidence")
-        
-        # Visualization
+
+        pred = torch.argmax(logits, dim=1).item()
+        emotion = classes[pred]
+        conf = probs[pred].item()
+
+        # ---- Display Emotion ----
+        st.metric("Detected Emotion", emotion.upper(), f"{conf:.2%} Confidence")
+
+        # ---- Reasoning Model ----
+        st.subheader("🧠 Reason + Feedback")
+
+        with st.spinner("Generating insight..."):
+            response = generate_response(user_input, emotion)
+
+        st.success(response)
+
+        # ---- Chart ----
         df = pd.DataFrame({
             'Emotion': [c.capitalize() for c in classes],
             'Confidence': probs.tolist()
         })
-        
-        fig = px.bar(df, x='Confidence', y='Emotion', orientation='h',
-                     color='Confidence',
-                     color_continuous_scale='Blues',
-                     text_auto='.2%')
-        
-        fig.update_layout(
-            showlegend=False, 
-            height=350, 
-            margin=dict(l=0, r=0, t=20, b=0),
-            xaxis_title="Confidence Probability",
-            yaxis_title=None
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-    elif predict_button:
-        st.warning("Analysis failed: Please provide input text.")
-    else:
-        st.info("Awaiting input... The results and confidence distribution will appear here.")
 
-# --- FOOTER ---
+        fig = px.bar(df, x='Confidence', y='Emotion',
+                     orientation='h', color='Confidence',
+                     text_auto='.2%')
+
+        fig.update_layout(height=300)
+        st.plotly_chart(fig, use_container_width=True)
+
+    elif predict_button:
+        st.warning("Please enter text.")
+    else:
+        st.info("Enter text and click analyze.")
+
+# =========================
+# FOOTER
+# =========================
 st.markdown("---")
-footer_col1, footer_col2 = st.columns([2, 1])
-with footer_col1:
-    st.markdown("© 2026 Dev Dharmesh Patel | Built for the 'Advanced Frontend Development and Deployment' Portfolio.")
+st.caption("© 2026 Dev Dharmesh Patel | MoodLens AI")
